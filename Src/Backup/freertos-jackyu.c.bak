@@ -1,0 +1,222 @@
+/**
+  ******************************************************************************
+  * File Name          : freertos.c
+  * Description        : Code for freertos applications
+  ******************************************************************************
+  * This notice applies to any and all portions of this file
+  * that are not between comment pairs USER CODE BEGIN and
+  * USER CODE END. Other portions of this file, whether 
+  * inserted by the user or by software development tools
+  * are owned by their respective copyright owners.
+  *
+  * Copyright (c) 2018 STMicroelectronics International N.V. 
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without 
+  * modification, are permitted, provided that the following conditions are met:
+  *
+  * 1. Redistribution of source code must retain the above copyright notice, 
+  *    this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright notice,
+  *    this list of conditions and the following disclaimer in the documentation
+  *    and/or other materials provided with the distribution.
+  * 3. Neither the name of STMicroelectronics nor the names of other 
+  *    contributors to this software may be used to endorse or promote products 
+  *    derived from this software without specific written permission.
+  * 4. This software, including modifications and/or derivative works of this 
+  *    software, must execute solely and exclusively on microcontroller or
+  *    microprocessor devices manufactured by or for STMicroelectronics.
+  * 5. Redistribution and use of this software other than as permitted under 
+  *    this license is void and will automatically terminate your rights under 
+  *    this license. 
+  *
+  * THIS SOFTWARE IS PROVIDED BY STMICROELECTRONICS AND CONTRIBUTORS "AS IS" 
+  * AND ANY EXPRESS, IMPLIED OR STATUTORY WARRANTIES, INCLUDING, BUT NOT 
+  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
+  * PARTICULAR PURPOSE AND NON-INFRINGEMENT OF THIRD PARTY INTELLECTUAL PROPERTY
+  * RIGHTS ARE DISCLAIMED TO THE FULLEST EXTENT PERMITTED BY LAW. IN NO EVENT 
+  * SHALL STMICROELECTRONICS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
+  * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
+  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  *
+  ******************************************************************************
+  */
+
+/* Includes ------------------------------------------------------------------*/
+#include "FreeRTOS.h"
+#include "task.h"
+#include "cmsis_os.h"
+
+/* USER CODE BEGIN Includes */     
+#include "main.h"
+#include "usart.h"
+#include "spi.h"
+#include "bsp_bmp280.h"
+#include "bsp_mpu9255.h"
+#include "bsp_at25010b.h"
+
+/* USER CODE END Includes */
+
+/* Variables -----------------------------------------------------------------*/
+osThreadId defaultTaskHandle;
+osThreadId myTask01Handle;
+osThreadId myTask02Handle;
+osMessageQId myQueue01Handle;
+osMessageQId myQueue02Handle;
+osMutexId myMutex01Handle;
+
+/* USER CODE BEGIN Variables */
+extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart5;
+
+extern uint8_t usart1_rxbuf[USART1_RXBUFF_SIZE];
+extern uint8_t usart2_rxbuf[USART2_RXBUFF_SIZE];
+extern uint8_t usart3_rxbuf[USART3_RXBUFF_SIZE];
+extern uint8_t uart5_rxbuf[UART5_RXBUFF_SIZE];
+
+extern uint16_t usart1_rxlen;
+extern uint16_t usart2_rxlen;
+extern uint16_t usart3_rxlen;
+extern uint16_t uart5_rxlen;
+
+extern uint8_t usart1_Rx_Data;
+extern uint8_t usart2_Rx_Data;
+extern uint8_t usart3_Rx_Data;
+extern uint8_t uart5_Rx_Data;
+
+
+/* USER CODE END Variables */
+
+/* Function prototypes -------------------------------------------------------*/
+void StartDefaultTask(void const * argument);
+void StartTask01(void const * argument);
+void StartTask02(void const * argument);
+
+void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
+
+/* USER CODE BEGIN FunctionPrototypes */
+void BSP_LED_OnOff(uint16_t led, GPIO_PinState State);
+void BSP_LED_Toggle(uint16_t led);
+
+/* USER CODE END FunctionPrototypes */
+
+/* Hook prototypes */
+
+/* Init FreeRTOS */
+
+void MX_FREERTOS_Init(void) {
+  /* USER CODE BEGIN Init */
+       
+  /* USER CODE END Init */
+
+  /* Create the mutex(es) */
+//  /* definition and creation of myMutex01 */
+//  osMutexDef(myMutex01);
+//  myMutex01Handle = osMutexCreate(osMutex(myMutex01));
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
+  /* definition and creation of myTask01 */
+  osThreadDef(myTask01, StartTask01, osPriorityNormal, 0, 256);
+  myTask01Handle = osThreadCreate(osThread(myTask01), NULL);
+
+  /* definition and creation of myTask02 */
+  osThreadDef(myTask02, StartTask02, osPriorityAboveNormal, 0, 256);
+  myTask02Handle = osThreadCreate(osThread(myTask02), NULL);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* Create the queue(s) */
+  /* definition and creation of myQueue01 */
+  osMessageQDef(myQueue01, 100, uint16_t);
+  myQueue01Handle = osMessageCreate(osMessageQ(myQueue01), NULL);
+
+  /* definition and creation of myQueue02 */
+  osMessageQDef(myQueue02, 100, uint16_t);
+  myQueue02Handle = osMessageCreate(osMessageQ(myQueue02), NULL);
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+}
+
+/* StartDefaultTask function */
+void StartDefaultTask(void const * argument)
+{
+
+  /* USER CODE BEGIN StartDefaultTask */
+//	// Test for EEPROM
+//	at25010b_initi_spi();
+  /* Infinite loop */
+  for(;;)
+  {
+		BSP_LED_Toggle(0);
+    osDelay(500);
+  }
+  /* USER CODE END StartDefaultTask */
+}
+
+/* StartTask01 function */
+void StartTask01(void const * argument)
+{
+  /* USER CODE BEGIN StartTask01 */
+	mpu9255_initi_spi();
+	BMP280_Initi_spi();
+	
+	HAL_UART_Receive_IT(&huart3, &usart3_Rx_Data, 1);	
+  /* Infinite loop */
+  for(;;)
+  {
+		read_mpu9255_spi();
+	  BMP280_CalTemperatureAndPressureAndAltitude_spi(&TemperatureVal, &PressureVal, &AltitudeVal);
+		// IMU USART3
+		printf("%d %d %d %d %d %d %d %d %d %d\n",
+		       IMU_Data.Data.ACCEL_X,IMU_Data.Data.ACCEL_Y,IMU_Data.Data.ACCEL_Z,
+           IMU_Data.Data.GYRO_X,IMU_Data.Data.GYRO_Y,IMU_Data.Data.GYRO_Z,
+					 IMU_Data.Data.TEMP,TemperatureVal,PressureVal,AltitudeVal);
+		
+    osDelay(2);
+  }
+  /* USER CODE END StartTask01 */
+}
+
+/* StartTask02 function */
+void StartTask02(void const * argument)
+{
+  /* USER CODE BEGIN StartTask02 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Application */
+     
+/* USER CODE END Application */
+
+/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

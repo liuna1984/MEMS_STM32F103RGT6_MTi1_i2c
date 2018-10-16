@@ -1,0 +1,1356 @@
+#include "main.h"
+#include "gps.h"
+
+unsigned char HexToChar(unsigned char ch);
+
+#define BUFFER_MAX_SIZE 256
+#define BUFFER_NUMBER 2
+
+double Gps_course;
+float Pdop;
+int S_num;
+unsigned char g_ucGpsDataBuffer[BUFFER_NUMBER][BUFFER_MAX_SIZE];
+int g_nBufferHeadPosition[BUFFER_NUMBER] = {0};
+int g_nBufferTailPosition[BUFFER_NUMBER] = {0};
+int g_nBufferLength[BUFFER_NUMBER] = {0};
+
+//GPS接收数据的CRC校验变量
+unsigned char crc_i=0,crc=0,crc_H=0,crc_L=0;
+
+//
+#define HEAD_TEMPLE_NUMBER  8
+
+unsigned char g_HeadTemple[HEAD_TEMPLE_NUMBER][8] = {"$GPVTG","$GNGGA","$GNRMC","$GPGBS","$GPVTG","$PSAT,","$GPGGA","$GPRMC"};//TEST  onboard GPS
+char g_cHeadTempleEnable[HEAD_TEMPLE_NUMBER] = {0};
+unsigned char Gps_Count=0;
+int Gps_buf_size=0;
+unsigned char Gps_buf[256];
+GPGGA_PAC GPGGA;
+float Pdop;
+
+PSAT_PAC PSAT;
+
+unsigned char GPS_Updata_Flag = 0;
+GPRMC_PAC GPRMC;
+
+unsigned char  engga[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x00,0x00,0x01,0x00,0x00,0xFE,0x18// ??GGA  
+};  
+unsigned char  disgga[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x00,0x00,0x00,0x00,0x00,0xFD,0x15// ??GGA  
+};  
+unsigned char  engll[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x01,0x00,0x01,0x00,0x00,0xFF,0x1D// ??GLL  
+};  
+unsigned char  disgll[]={  
+0xB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x01,0x00,0x00,0x00,0x00,0xFE,0x1A//,0x??GLL  
+};  
+unsigned char  engsa[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x02,0x00,0x01,0x00,0x00,0x00,0x22// ??GSA  
+};  
+unsigned char  disgsa[]={  
+0xB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x02,0x00,0x00,0x00,0x00,0xFF,0x1F// ??GSA  
+};  
+unsigned char  engsv[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x03,0x00,0x01,0x00,0x00,0x01,0x27//??GSV  
+};  
+unsigned char  disgsv[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x03,0x00,0x00,0x00,0x00,0x00,0x24// ??GSV  
+};  
+unsigned char  enrmc[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x04,0x00,0x01,0x00,0x00,0x02,0x2C// ??RMC  
+};  
+unsigned char  disrmc[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x04,0x00,0x00,0x00,0x00,0x01,0x29// ??RMC   
+};  
+unsigned char  envtg[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x05,0x00,0x01,0x00,0x00,0x03,0x31// ??VTG  
+};  
+unsigned char  disvtg[]={  
+0xB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x05,0x00,0x00,0x00,0x00,0x02,0x2E// ??VTG  
+};  
+unsigned char  engrs[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x06,0x00,0x01,0x00,0x00,0x04,0x36// ??GRS  
+};  
+unsigned char  disgrs[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x06,0x00,0x00,0x00,0x00,0x03,0x33// ??GRS  
+};  
+unsigned char  engst[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x07,0x00,0x01,0x00,0x00,0x05,0x3B// ??GST   
+};  
+unsigned char  disgst[]={  
+0xB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x07,0x00,0x00,0x00,0x00,0x04,0x38// ??GST  
+};  
+unsigned char  enzda[]={  
+0xB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x08,0x00,0x01,0x00,0x00,0x06,0x40// ??ZDA  
+};  
+unsigned char  diszda[]={  
+0XB5,0x62,0x06,0x01,0x06,0x00,0xF0,0x08,0x00,0x00,0x00,0x00,0x05,0x3D// ??ZDA  
+};  
+
+
+void ClearAllBuffer()
+{
+	int i, j;
+	for (i=0; i<BUFFER_NUMBER; i++)
+	{
+		g_nBufferHeadPosition[i] = 0;
+		g_nBufferTailPosition[i] = 0;
+		g_nBufferLength[i] = 0;
+		for (j=0; j<BUFFER_MAX_SIZE; j++)
+		{
+			g_ucGpsDataBuffer[i][j] = 0x00;
+		}
+	}
+}
+
+void PushBuffer(unsigned char GpsByte, unsigned char BufferNumber)
+{
+	if (g_nBufferLength[BufferNumber]<BUFFER_MAX_SIZE)
+	{
+		g_ucGpsDataBuffer[BufferNumber][g_nBufferTailPosition[BufferNumber]] = GpsByte;
+		g_nBufferTailPosition[BufferNumber]++;
+		if (g_nBufferTailPosition[BufferNumber] >= BUFFER_MAX_SIZE)
+		{
+			g_nBufferTailPosition[BufferNumber] = 0;
+		}
+		g_nBufferLength[BufferNumber]++;
+	}
+}
+
+unsigned char GetChar(unsigned char BufferNumber, int* nFlag)
+{
+	unsigned char temp;
+	
+	if (g_nBufferLength[BufferNumber] > 0)
+	{
+		g_nBufferLength[BufferNumber]--;
+		temp = g_ucGpsDataBuffer[BufferNumber][g_nBufferHeadPosition[BufferNumber]];
+		g_nBufferHeadPosition[BufferNumber]++;
+		if (g_nBufferHeadPosition[BufferNumber] >= BUFFER_MAX_SIZE)
+		{
+			g_nBufferHeadPosition[BufferNumber] = 0;
+		}
+		*nFlag = 1;
+		return temp;
+        
+	}
+	*nFlag = -1;
+	return 0;
+	
+}
+
+void GPS_Data_Receive(unsigned char GPS_Data_Input, unsigned char BufferNumber)//接yq收到的GPS数据在此接口传入解析函数
+{
+	PushBuffer(GPS_Data_Input, BufferNumber);
+	
+}
+
+char CharCmp(unsigned char* string1, unsigned char* string2, int length)
+{
+	int i;
+	for (i=0; i<length; i++)
+	{
+		if (string1[i] != string2[i])
+		{
+			return 0;
+		}
+	}
+	return 1;
+	
+}
+
+void GpsScan(unsigned char GPS_Data_Input)
+{
+	int i;
+	char cFlagOnceEanble = 0;
+	unsigned char t1;
+	unsigned char t2;
+	
+	if(Gps_Count == 0)
+	{
+		if(GPS_Data_Input == '$')//匹配'$'符号
+		{
+			Gps_Count = 1;
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+		}
+		else
+		{
+			Gps_Count = 0;
+			Gps_buf_size = 0;
+		}
+	}
+	else if(Gps_Count == 1)
+	{
+		cFlagOnceEanble = 0;
+		for (i=0; i<HEAD_TEMPLE_NUMBER; i++)
+		{
+			g_cHeadTempleEnable[i] = 0;
+		}
+		for (i=0; i<HEAD_TEMPLE_NUMBER; i++)
+		{
+			if(GPS_Data_Input==g_HeadTemple[i][1] )//
+			{
+				cFlagOnceEanble = 1;
+				g_cHeadTempleEnable[i] = 1;
+			}
+			else
+			{
+				g_cHeadTempleEnable[i] = 0;
+			}
+		}
+		if (cFlagOnceEanble == 1)
+		{
+			Gps_Count = 2;
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+		}
+		else
+		{
+			Gps_Count = 0;
+			Gps_buf_size = 0;
+		}
+	}
+	else if(Gps_Count == 2)
+	{
+		cFlagOnceEanble = 0;
+		for (i=0; i<HEAD_TEMPLE_NUMBER; i++)
+		{
+			if(GPS_Data_Input==g_HeadTemple[i][2] && (g_cHeadTempleEnable[i] == 1))//
+			{
+				cFlagOnceEanble = 1;
+				g_cHeadTempleEnable[i] = 1;
+			}
+			else
+			{
+				g_cHeadTempleEnable[i] = 0;
+			}
+		}
+		if (cFlagOnceEanble == 1)
+		{
+			Gps_Count = 3;
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+		}
+		else
+		{
+			Gps_Count = 0;
+			Gps_buf_size = 0;
+		}
+	}
+	else if(Gps_Count == 3)
+	{
+		cFlagOnceEanble = 0;
+		for (i=0; i<HEAD_TEMPLE_NUMBER; i++)
+		{
+			if(GPS_Data_Input==g_HeadTemple[i][3] && (g_cHeadTempleEnable[i] == 1))//
+			{
+				cFlagOnceEanble = 1;
+				g_cHeadTempleEnable[i] = 1;
+			}
+			else
+			{
+				g_cHeadTempleEnable[i] = 0;
+			}
+		}
+        if (cFlagOnceEanble == 1)
+        {
+            Gps_Count = 4;
+            Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+        }
+        else
+        {
+            Gps_Count = 0;
+            Gps_buf_size = 0;
+        }
+	}
+	else if(Gps_Count == 4)
+	{
+		cFlagOnceEanble = 0;
+		for (i=0; i<HEAD_TEMPLE_NUMBER; i++)
+		{
+			if((GPS_Data_Input==g_HeadTemple[i][4]) && (g_cHeadTempleEnable[i] == 1))//
+			{
+				cFlagOnceEanble = 1;
+			}
+			else
+			{
+				g_cHeadTempleEnable[i] = 0;
+			}
+		}
+		if (cFlagOnceEanble == 1)
+		{
+			Gps_Count = 5;
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+		}
+		else
+		{
+			Gps_Count = 0;
+			Gps_buf_size = 0;
+		}
+	}
+	else if(Gps_Count == 5)
+	{
+		cFlagOnceEanble = 0;
+		for (i=0; i<HEAD_TEMPLE_NUMBER; i++)
+		{
+			if((GPS_Data_Input==g_HeadTemple[i][5]) && (g_cHeadTempleEnable[i] == 1))//
+			{
+				cFlagOnceEanble = 1;
+			}
+			else
+			{
+				g_cHeadTempleEnable[i] = 0;
+			}
+		}
+		if (cFlagOnceEanble == 1)
+		{
+			Gps_Count = 6;
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+		}
+		else
+		{
+			Gps_Count = 0;
+			Gps_buf_size = 0;
+		}
+	}
+	else if(Gps_Count == 6)
+	{
+		if(GPS_Data_Input!=0x0d)//检测是否接收完一条数据
+		{			
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+			if(Gps_buf_size>=255)//超内存退出
+			{	
+				Gps_Count=0;
+				Gps_buf_size=0;
+			}
+		}
+		else
+		{
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+			Gps_Count = 7;
+		}
+	}
+	else if(Gps_Count == 7)
+	{
+		if(GPS_Data_Input==0x0a)//检测是否接收完一条数据
+		{
+			Gps_buf[Gps_buf_size++]=GPS_Data_Input;
+			//计算CRC校验
+			crc=0;
+			for(crc_i=1;crc_i<Gps_buf_size-5;crc_i++)
+			{
+				crc=crc^Gps_buf[crc_i];
+			}
+			crc_H=crc>>4;
+			crc_L=crc&0xf;
+			
+			//匹配校验
+			t1 = HexToChar(crc_H);
+			t2 = HexToChar(crc_L);
+			
+			if ((t1==Gps_buf[Gps_buf_size-4]) 
+					&& (t2==Gps_buf[Gps_buf_size-3]))
+  //          if(1)
+			{	
+				if (CharCmp(Gps_buf, "$GPVTG", 6))
+				{
+                    
+				}
+				else if (CharCmp(Gps_buf, "$GNGGA", 6))
+				{
+					GPGGA_PAC ParseTemp;
+					GPGGA_Parse(Gps_buf,Gps_buf_size,&ParseTemp);//送入解析函数
+					GPGGA_Updata(&ParseTemp);//更新GPS数据
+				}
+				else if (CharCmp(Gps_buf, "$GPGGA", 6))
+				{
+					GPGGA_PAC ParseTemp;
+					GPGGA_Parse(Gps_buf,Gps_buf_size,&ParseTemp);//送入解析函数
+					GPGGA_Updata(&ParseTemp);//更新GPS数据
+				}
+				else if (CharCmp(Gps_buf, "$GNRMC", 6))
+				{
+					GPRMC_PAC ParseTemp;
+					GPRMC_Parse(Gps_buf,Gps_buf_size,&ParseTemp);//送入解析函数
+					GPRMC_Updata(&ParseTemp);//更新GPS数据
+				}
+				else if (CharCmp(Gps_buf, "$GPRMC", 6))
+				{
+					GPRMC_PAC ParseTemp;
+					GPRMC_Parse(Gps_buf,Gps_buf_size,&ParseTemp);//送入解析函数
+					GPRMC_Updata(&ParseTemp);//更新GPS数据
+				}
+				else if (CharCmp(Gps_buf, "$PSAT,", 6))
+				{
+					PSAT_PAC ParseTemp;
+					PSAT_Parse(Gps_buf,Gps_buf_size,&ParseTemp);
+					PSAT_Updata(&ParseTemp);//更新GPS数据
+				}
+				else if (CharCmp(Gps_buf, "$GPVTG", 6))
+				{
+                    
+				}
+			}
+		}
+		
+		//清空变量，待接收下一条数据
+		Gps_Count=0;
+		Gps_buf_size=0;
+	}
+}
+
+//HEX?char??
+unsigned char HexToChar(unsigned char ch)
+{
+	if(ch<10)
+	{
+		ch=ch+'0';
+	}
+	else
+	{
+		ch=ch-10+'A';
+	}
+	return ch;
+}
+
+
+void GPGGA_Parse(unsigned char * GPS_Data_Input,unsigned char len, GPGGA_PAC* GPGGA_New_Point)
+{
+	//$GPGGA,112157.00,2232.80893,N,11355.99305,E,1,04,3.80,56.3,M,-2.7,M,,*77
+	unsigned char i=0,j=0,buf1[11];
+	for(i=0;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			break;
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->hour=0;
+			GPGGA_New_Point->min=0;
+			GPGGA_New_Point->sec=0;
+			if(j>=6)
+			{
+				j=(buf1[0]-'0')*10+(buf1[1]-'0');//<1> UTC??,???hhmmss.sss;
+				GPGGA_New_Point->hour=j;
+				
+				j=(buf1[2]-'0')*10+(buf1[3]-'0');
+				GPGGA_New_Point->min=j;
+				
+				j=(buf1[4]-'0')*10+(buf1[5]-'0');
+				GPGGA_New_Point->sec=j;
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->Latitude=0;
+			if(j>=9)
+			{
+				GPGGA_New_Point->Latitude=StringToDouble(buf1,j);//<2> ??,???ddmm.mmmm(?????????);
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->NS=0;
+			if(j==1)
+			{
+				GPGGA_New_Point->NS=buf1[0];//<3> ????,N?S(?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->Longitude=0;
+			if(j>=10)
+			{
+				GPGGA_New_Point->Longitude=StringToDouble(buf1,j);//<4> ??,???dddmm.mmmm(????????);
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->EW=0;
+			if(j==1)
+			{
+				GPGGA_New_Point->EW=buf1[0];//<5> ????,E?W(?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->STATUS=0;
+			if(j==1)
+			{
+				GPGGA_New_Point->STATUS=(buf1[0]-'0');//<6> GPS??
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->NUM=0;
+			if(j==2)
+			{
+				GPGGA_New_Point->NUM=(buf1[0]-'0')*10+(buf1[1]-'0');//<7> ??????,?00?12(????????)
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->PDOP=0;
+			if(j>=2)
+			{
+				GPGGA_New_Point->PDOP=StringToDouble(buf1,j);//<8> ??????,0.5?99.9
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->High1=0;
+			if(j>=2)
+			{
+				GPGGA_New_Point->High1=StringToDouble(buf1,j);//<9> ?????????,-9999.9?9999.9? M????
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			break;
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPGGA_New_Point->High2=0;
+			if(j>=2)
+			{
+				GPGGA_New_Point->High2=StringToDouble(buf1,j);//<11> ??GPS????(RTCM SC-104),????RTCM??????,??????????
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+}
+
+
+void GPRMC_Parse(unsigned char* GPS_Data_Input,unsigned char len, GPRMC_PAC* GPRMC_New_Point)
+{
+	//$GPRMC,112157.00,A,2232.80890,N,11355.99305,E,0.228,,100913,,,A*7E
+	unsigned char i=0, j=0, buf1[11];
+	
+	for(i=0;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			break;
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->hour=0;
+			GPRMC_New_Point->min=0;
+			GPRMC_New_Point->sec=0;
+			if(j>=6)
+			{
+				j=(buf1[0]-'0')*10+(buf1[1]-'0');//<1> UTC??,hhmmss.sss(???.??)??
+				GPRMC_New_Point->hour=j;
+				
+				j=(buf1[2]-'0')*10+(buf1[3]-'0');
+				GPRMC_New_Point->min=j;
+				
+				j=(buf1[4]-'0')*10+(buf1[5]-'0');
+				GPRMC_New_Point->sec=j;
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->STATUS=0;
+			if(j==1)
+			{
+				GPRMC_New_Point->STATUS=buf1[0];//<2> ????,A=????,V=????
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->Latitude=0;
+			if(j>=2)
+			{
+				GPRMC_New_Point->Latitude=StringToDouble(buf1,j);//<3> ??ddmm.mmmm(??)??(???0?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->NS=0;
+			if(j==1)
+			{
+				GPRMC_New_Point->NS=buf1[0];//<4> ????N(???)?S(???)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->Longitude=0;
+			if(j>=2)
+			{
+				GPRMC_New_Point->Longitude=StringToDouble(buf1,j);//<5> ??dddmm.mmmm(??)??(???0?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->EW=0;
+			if(j==1)
+			{
+				GPRMC_New_Point->EW=buf1[0];//<6> ????E(??)?W(??)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->rate=0;
+			if(j>=2)
+			{
+				GPRMC_New_Point->rate=StringToDouble(buf1,j);//<7> ????(000.0~999.9?,???0?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->course=0;
+			if(j>=2)
+			{
+				GPRMC_New_Point->course=StringToDouble(buf1,j);//<8> ????(000.0~359.9?,????????,???0?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->day=0;
+			GPRMC_New_Point->month=0;
+			GPRMC_New_Point->year=0;
+			if(j>=6)
+			{
+				j=(buf1[0]-'0')*10+(buf1[1]-'0');//<9> UTC??,ddmmyy(???)??
+				GPRMC_New_Point->day=j;
+				
+				j=(buf1[2]-'0')*10+(buf1[3]-'0');
+				GPRMC_New_Point->month=j;
+				
+				j=(buf1[4]-'0')*10+(buf1[5]-'0');
+				GPRMC_New_Point->year=j;
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+ /////////////////////////  Parse Magnetic Offset Angle  lig /////////////////////////////
+    for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->Mag_Offset_Angle=0;
+			if(j>=1)
+			{
+				GPRMC_New_Point->Mag_Offset_Angle=StringToDouble(buf1,j);
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//????
+		{
+			i++;
+			GPRMC_New_Point->Mag_EW=0;
+			if(j>=1)
+			{
+				GPRMC_New_Point->Mag_EW=buf1[0];//<6> Mag offset angle to E or W
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+ //////////////////////// End of Parse Magnetic offset Angle  /////////////////////////////
+}
+
+//??GPGGA??
+void GPGGA_Updata(GPGGA_PAC* GPGGA_New_Point)
+{
+	int buf1;
+	double buf2;
+	
+	buf1=(int)(GPGGA_New_Point->Longitude/100);
+	buf2=(GPGGA_New_Point->Longitude-buf1*100)/60;
+	GPGGA_New_Point->Longitude=(buf2+buf1);
+
+	buf1=(int)(GPGGA_New_Point->Latitude/100);
+	buf2=(GPGGA_New_Point->Latitude-buf1*100)/60;
+	GPGGA_New_Point->Latitude=(buf2+buf1);
+	
+	GPGGA.STATUS	=GPGGA_New_Point->STATUS;
+	GPGGA.hour		=GPGGA_New_Point->hour;
+	GPGGA.min		=GPGGA_New_Point->min;
+	GPGGA.sec		=GPGGA_New_Point->sec;
+	GPGGA.NS		=GPGGA_New_Point->NS;
+	GPGGA.EW		=GPGGA_New_Point->EW;
+	GPGGA.NUM		=GPGGA_New_Point->NUM;
+	GPGGA.Latitude	=GPGGA_New_Point->Latitude;
+	GPGGA.Longitude	=GPGGA_New_Point->Longitude;
+	GPGGA.High1		=GPGGA_New_Point->High1;
+	GPGGA.High2		=GPGGA_New_Point->High2;
+	GPGGA.PDOP		=GPGGA_New_Point->PDOP;
+	Pdop = GPGGA.PDOP;
+//	S_num = (int)GPGGA.NUM;
+}
+
+//??GPRMC??
+
+void GPRMC_Updata( GPRMC_PAC* GPRMC_New_Point)
+{
+	int buf1;
+	double buf2;
+	
+//	if(GPRMC_New_Point->STATUS=='A')
+	{
+		buf1=(int)(GPRMC_New_Point->Longitude/100);
+		buf2=(GPRMC_New_Point->Longitude-buf1*100)/60;
+		GPRMC_New_Point->Longitude=(buf2+buf1);
+
+		buf1=(int)(GPRMC_New_Point->Latitude/100);
+		buf2=(GPRMC_New_Point->Latitude-buf1*100)/60;
+		GPRMC_New_Point->Latitude=(buf2+buf1);
+		
+		GPRMC.hour		=GPRMC_New_Point->hour;
+		GPRMC.min		=GPRMC_New_Point->min;
+		GPRMC.sec		=GPRMC_New_Point->sec;
+		GPRMC.NS		=GPRMC_New_Point->NS;
+		GPRMC.EW		=GPRMC_New_Point->EW;
+		GPRMC.STATUS	=GPRMC_New_Point->STATUS;
+		GPRMC.day		=GPRMC_New_Point->day;
+		GPRMC.month		=GPRMC_New_Point->month;
+		GPRMC.year		=GPRMC_New_Point->year;
+		GPRMC.Latitude	=GPRMC_New_Point->Latitude;
+		GPRMC.Longitude	=GPRMC_New_Point->Longitude;
+		GPRMC.rate		=GPRMC_New_Point->rate;
+		GPRMC.course	=GPRMC_New_Point->course;
+		GPS_Updata_Flag = 1;
+        GPRMC.Mag_EW = GPRMC_New_Point->Mag_EW;
+        GPRMC.Mag_Offset_Angle = GPRMC_New_Point->Mag_Offset_Angle;
+	}
+//	else
+//	{
+//		GPS_Location.STATUS=FALSE;
+//		GPRMC.STATUS=FALSE;
+//	}
+}
+
+void PSAT_Parse(unsigned char * GPS_Data_Input,unsigned char len, PSAT_PAC* PSAT_New_Point)
+{
+    unsigned char i=0,j=0,buf1[11];
+	for(i=0;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//丢弃HPR
+		{
+			i++;
+			break;
+		}
+	}
+    
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//丢弃HPR
+		{
+			i++;
+			break;
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//UTC时间
+		{
+			i++;
+			PSAT_New_Point->hour=0;
+			PSAT_New_Point->min=0;
+			PSAT_New_Point->sec=0;
+			if(j>=6)
+			{
+				j=(buf1[0]-'0')*10+(buf1[1]-'0');//<1> UTC??,???hhmmss.sss;
+				PSAT_New_Point->hour=j;
+				
+				j=(buf1[2]-'0')*10+(buf1[3]-'0');
+				PSAT_New_Point->min=j;
+				
+				j=(buf1[4]-'0')*10+(buf1[5]-'0');
+				PSAT_New_Point->sec=j;
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//Yaw
+		{
+			i++;
+			PSAT_New_Point->yaw=0;
+			if(j>=1)
+			{
+				PSAT_New_Point->yaw=StringToDouble(buf1,j);//
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+    for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//pitch
+		{
+			i++;
+			PSAT_New_Point->pitch=0;
+			if(j>=1)
+			{
+				PSAT_New_Point->pitch=StringToDouble(buf1,j);//
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+    for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//roll
+		{
+			i++;
+			PSAT_New_Point->roll=0;
+			if(j>=1)
+			{
+				PSAT_New_Point->roll=StringToDouble(buf1,j);//
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+	for(;i<len;i++)
+	{
+		if(GPS_Data_Input[i] == ',')//
+		{
+			i++;
+			PSAT_New_Point->status=0;
+			if(j==1)
+			{
+				PSAT_New_Point->status=buf1[0];//<3> ????,N?S(?????)
+
+				j=0;
+			}
+			break;
+		}
+		else
+		{
+			buf1[j++]=GPS_Data_Input[i];//????????????
+		}
+	}
+}
+
+void PSAT_Updata(PSAT_PAC* PSAT_New_Point)
+{
+	PSAT.yaw = PSAT_New_Point->yaw;
+	PSAT.pitch = PSAT_New_Point->pitch;
+	PSAT.roll = PSAT_New_Point->roll;
+	PSAT.status = PSAT_New_Point->status;
+	
+}
+
+
+GPGGA_PAC Get_GPS_GPGGA(void)
+{
+	return GPGGA;
+}
+
+GPRMC_PAC Get_GPS_GPRMC(void)
+{
+	return GPRMC;
+}
+
+PSAT_PAC Get_GPS_PSAT(void)
+{
+  return PSAT;
+}
+
+// 字符转双精度
+double StringToDouble(unsigned char * ch,unsigned char len)
+{
+	double buf1=0,buf2=1;
+	unsigned char i=0,j=0,k=0;
+	if(ch[0]=='-')
+	{
+		k=1;
+		i++;
+	}
+	for(;i<len;i++)
+	{
+		if(ch[i] == '.')
+		{
+			//i++;
+			j=len-i-1;
+		}
+		else
+		{
+			buf1*=10;
+			buf1+=ch[i]-'0';
+		}
+	}
+	for(i=0;i<j;i++)
+	{
+		buf2*=10;
+	}
+	buf1/=buf2;
+	
+	if(k==1)
+	{
+		buf1=-buf1;
+	}
+
+	return buf1;
+}
+
+// 更新GPS数据
+void UpdateGpsData(unsigned char BufferNumber)
+{
+ unsigned char ucTemp;
+ int nEnable = 0;
+	
+ ucTemp = GetChar(BufferNumber, &nEnable);
+ 
+	if (nEnable > 0)
+  {
+//    printf("%c",ucTemp);
+    GpsScan(ucTemp);
+  }
+ 
+}
+
+/*
+char ReceivingF = 0;
+char EndF = 0;
+char NewByteF = 0;
+
+unsigned char GPS_time[9];		    // UTC时间
+unsigned char GPS_wd[11];         // 纬度
+unsigned char GPS_jd[12];         // 经度
+unsigned char GPS_warn;           // 定位警告
+unsigned char GPS_status;         // 定位状态
+unsigned char GPS_alt[8];         // 海拔
+unsigned char GPS_sv[3];          // 使用卫星 
+unsigned char GPS_speed[6];       // 速度
+unsigned char GPS_date[9];        // UTC日期
+
+unsigned char Segment;            // 逗号计数
+unsigned char Bytes_counter;
+unsigned char Command;
+unsigned char tmp;
+
+//void uart(void) interrupt 4
+//{
+//	if(RI)
+//	{
+//		tmp = SBUF;
+//		NewByteF = 1;
+//		RI = 0;
+//		return;
+//	}
+//}
+
+void gps(void)
+{
+	if(tmp == '$')                  // 起始标志
+	{
+		ReceivingF = 1;
+		Bytes_counter = 0;
+		Segment = 0;                  // 清空语句段计数
+		return;
+	}
+	if(ReceivingF)
+	{                
+		if(tmp == ',')
+		{
+			Segment = 0;
+			Bytes_counter = 0;          // 清空段字节计数
+	}
+	if(tmp == '*')                  // 收到结束标志
+	{
+		Command = 0;
+		ReceivingF = 0;
+		EndF = 1;
+		return;
+	}
+	switch(Segment)                 // 分段处理
+	{
+		case 0:
+			     if(Bytes_counter == 3)      // 段0，语句类型判断
+					 
+						switch(tmp)
+						{
+							case 'G': Command = 1;   // 语句类型 $GPGGA
+                        break;
+							case 'M': Command = 2;   // 语句类型 $GPRMC
+                        break;
+              default: Command = 0;    // 非有效数据类型，终止当前数据接收
+                       ReceivingF = 0;
+                       break;
+            }
+            break;
+	case 1:
+					switch(Command)
+					{
+						case 1: if(Bytes_counter == 2 || Bytes_counter ==5) // $GPGGA段1,UTC时间,hhmmss(时分秒)格式, 取前6位转换为HH:MM:SS格式
+						        {
+                      GPS_time[Bytes_counter] = tmp;
+										}
+                    if(Bytes_counter > 1 && Bytes_counter < 4)
+                    break;
+						case 2:break;                                       // $GPRMC第1段处理忽略        
+					}
+					break;
+                                        
+	case 2:
+					switch(Command)
+					{
+						case 1:
+							     if(Bytes_counter == 2)                       // $GPGGA段2处理纬度ddmm.mmmm(度分)格式
+                   {
+                     GPS_wd[Bytes_counter] = '.';               // 接收第二个字节插入'.'
+                     Bytes_counter++;
+                     GPS_wd[10] = '\0';
+                   }
+                   if(Bytes_counter == 0)Bytes_counter++;
+                   GPS_wd[Bytes_counter] = tmp;          
+                   break;
+						case 2:	GPS_warn = tmp;                             // $GPRMC第二段处理定位状态, A=有效定位,V=无效定位
+									  break;
+					}
+					break;
+					
+		case 3: switch(Command)
+            {
+              case 1: GPS_wd[0] = tmp;                          // $GPGGA第三段3处理纬度半球N(北半球)S(南半球)
+							        break;
+              case 2:                                           // $GPRMC第3段处理，忽略
+                      break;
+           }
+           break;
+		case 4: switch(Command)
+            {
+              case 1: 
+								      if(Bytes_counter == 3)                    // $GPGGA 第4段处理经度dddmm.mmmm(度分)格式
+                      {
+												GPS_jd[Bytes_counter] = '.';            // 接收第3字节后插入'.'
+												Bytes_counter++;
+												GPS_jd[11] = '\0';
+											}
+                      if(Bytes_counter == 0)Bytes_counter++;
+                      GPS_jd[Bytes_counter] = tmp;          
+                      break;
+              case 2:                                           // $GPRMC第4段 忽略
+                      break;
+					  }
+						break;
+		case 5:       
+			      switch(Command)
+						{
+							case 1: GPS_jd[0] = tmp;                          // $GPGGA第5段处理 经度E(东经) OR W(西经)
+                      break;
+							case 2:                                           // $GPRMC第5段 忽略
+											break;
+						}
+						break;
+		case 6:        
+			      switch(Command)
+						{
+							case 1: 
+											GPS_status = tmp;                         // $GPGGA第6段处理 GPS状态:0=未定位, 1=非差分定位, 2=差分定位, 6=正在估算
+											break;
+							case 2:                                           // $GPRMC第5段 忽略
+											break;
+						}
+						break;
+						
+		case 7:        
+						switch(Command)
+						{                                                          
+							case 1:        
+								      if(Bytes_counter<2)                        // $GPGGA第7段处理 正在使用解算位置的卫星数量(00~12)(前面的0也将被传输)
+                      { 
+											  GPS_sv[Bytes_counter] = tmp;
+											}
+											GPS_sv[2] = '\0';         
+											break;
+							case 2:        
+								      if(Bytes_counter < 5)                     // $GPRMC第7段处理 地面速率(000.0~999.9节, 前面的0也将被传输)
+											{
+												GPS_speed[Bytes_counter] = tmp;
+												GPS_speed[Bytes_counter+1] = '\0';
+											}
+											break;
+						}
+						break;     
+						
+		case 9:        
+						switch(Command)
+						{
+							case 1:      
+											if(Bytes_counter<7)                       // $GPGGA第9段处理(-9999.9~99999.9)
+											{
+												GPS_alt[Bytes_counter] = tmp;
+												GPS_alt[Bytes_counter+1] = '\0';
+											} 
+											break;
+							case 2:       
+											if(Bytes_counter < 2)                     // $GPRMC第9段处理 UTC日期 ,ddmmyy(日月年) 格式转换未yy.mm.dd
+											{
+												GPS_date[Bytes_counter+6] = tmp;
+											}
+											if(Bytes_counter > 1 && Bytes_counter < 4)// 月
+											{
+												GPS_date[Bytes_counter+1] = tmp;
+												GPS_date[5] = '-';
+											}
+											if(Bytes_counter > 3 && Bytes_counter < 6)// 年
+											{
+												GPS_date[Bytes_counter-4] = tmp;
+												GPS_date[2] = '-';
+												GPS_date[8] = '\0';
+											}
+											break;
+						}
+						break;
+						default:break;
+		}
+		Bytes_counter++;         
+	}
+	NewByteF = 0;
+	
+}
+//*/
+

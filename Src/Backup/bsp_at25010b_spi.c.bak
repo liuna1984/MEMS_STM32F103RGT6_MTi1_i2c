@@ -1,0 +1,117 @@
+/**
+  ******************************************************************************
+  * @file    bsp_mpu9255_spi.c
+  * @author  
+  * @version V1.0
+  * @date    27-January-2015
+  * @brief   This file includes the MPU9250 driver functions
+  
+  ******************************************************************************
+  */
+#include "bsp_at25010b.h"
+
+#if BUS_TYPE == BUS_SPI
+/**
+  * @brief  Initializes at25010
+  * @param  None
+  * @retval None
+  */
+void at25010b_initi_spi(void)
+{
+	unsigned char spi1_txbuf[20]={0};
+	unsigned char i;
+	
+  AT25010B_WP_HIGH;
+	
+	read_at25010b_spi(0x00, &spi1_rxbuf[0], 128);
+	
+	AT25010B_CS_LOW;
+	// Read Status Register
+  spi1_txbuf[0] = AT25010_RDSR;
+  HAL_SPI_TransmitReceive(&hspi1, &spi1_txbuf[0], &spi1_rxbuf[0], 1, 100);
+	AT25010B_CS_HIGH;	
+	HAL_Delay(10);
+	
+	AT25010B_CS_LOW;
+	// Set Write Enable Latch
+  spi1_txbuf[0] = AT25010_WREN;
+  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 100);
+	AT25010B_CS_HIGH;	
+	HAL_Delay(10);
+	
+	// Test for Write Data to Memory Array
+	AT25010B_CS_LOW;
+	// Write Data to Memory Array
+	spi1_txbuf[0] = AT25010_WRITE;
+	spi1_txbuf[1] = 0;
+	for(i = 0; i < 16; i++)
+	{
+    spi1_txbuf[i+2] = i;
+	}
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 10, 100);
+	AT25010B_CS_HIGH;	
+	HAL_Delay(10);
+	
+}
+
+/**
+  * @brief  read data from at25010b, write to pData for Len
+  * @param  Addr: read data address
+  *         pData: pointer to reception data buffer
+  *         Len,   read data length
+  * @retval read data of stater
+  */
+void read_at25010b_spi(unsigned char Addr, unsigned char *pData, unsigned char Len)
+{
+	unsigned char spi1_txbuf[10];
+
+	AT25010B_CS_LOW;
+  spi1_txbuf[0] = AT25010_READ;
+	spi1_txbuf[1] = Addr;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+  HAL_SPI_Receive(&hspi1, pData, Len, 100);
+
+	AT25010B_CS_HIGH;	
+	
+}
+
+
+/**
+  * @brief  write pData to at25010b 
+  * @param  Addr : write data address
+  *         pData: pointer to transmission data buffer
+  *         Len,   write data length
+  * @retval write data stater
+  */
+void write_at25010b_spi(unsigned char Addr, unsigned char *pData, unsigned char Len)
+{
+	unsigned char spi1_txbuf[AT25010B_LEN],i;
+
+	AT25010B_CS_LOW;
+	
+	// Set Write Enable Latch
+  spi1_txbuf[0] = AT25010_WREN;
+  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 100);
+	AT25010B_CS_HIGH;	
+	HAL_Delay(10);
+	
+	// Set Write Enable Latch
+	spi1_txbuf[0] = AT25010_WRITE;
+	spi1_txbuf[1] = Addr;
+	for(i = 0; i < Len; i++)
+	{
+    spi1_txbuf[i+3] = *pData;
+	}
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], Len+2, 100);
+	
+	// Reset Write Enable Latch
+  spi1_txbuf[0] = AT25010_WRDI;
+  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 100);
+	
+	AT25010B_CS_HIGH;	
+	HAL_Delay(10);
+	
+}
+
+#endif
+

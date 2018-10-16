@@ -1,0 +1,158 @@
+/**
+  ******************************************************************************
+  * @file    bsp_akm8975_spi.c
+  * @author  
+  * @version V1.0
+  * @date    27-January-2015
+  * @brief   This file includes the akm8975 driver functions, AK8975 Single measurement mode 
+	*          Sensor is measured for one time and data is output. Transits to 
+	*          Power-down mode automatically after measurement ended.
+  
+  ******************************************************************************
+  */
+#include "bsp_akm8975.h"
+
+signed short int Magn_X,Magn_Y,Magn_Z;
+
+#if (BUS_TYPE == BUS_SPI)
+/**
+  * @brief  Initializes akm8975
+  * @param  None
+  * @retval None
+  */
+void akm8975_initi_spi(void)
+{
+	unsigned char spi1_txbuf[20] = {0};
+	unsigned char ChipID = 0;
+	
+  CS8975_HIGH;
+	HAL_Delay(100);
+	
+	// I2C Disable
+	CS8975_LOW;
+	spi1_txbuf[0] = AK8975_I2CDIS_REG;
+	spi1_txbuf[1] = 0x1B;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 10);
+	CS8975_HIGH;
+	HAL_Delay(10);
+	
+	// Reset Device to Single measurement mode
+	CS8975_LOW;
+  spi1_txbuf[0] = AK8975_CNTL_REG;
+  spi1_txbuf[1] = 0x01;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 10);
+	CS8975_HIGH;	
+	HAL_Delay(10);
+
+	// Read Device ID
+	CS8975_LOW;
+  spi1_txbuf[0] = AK8975_WIA_REG | AKM8975_READ;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 10);
+	HAL_SPI_Receive(&hspi1, &ChipID, 1, 10);
+//	HAL_SPI_Receive(&hspi1, &spi1_rxbuf[0], 11, 10);
+//	ChipID = spi1_rxbuf[0];
+	CS8975_HIGH;
+	HAL_Delay(1);
+
+	if(ChipID == WIA_VOL)
+	{ 
+
+	}
+	
+}
+
+/**
+  * @brief  mpu9255 data read 
+  * @param  None
+  * @retval None
+  */
+void read_akm8975_spi(void)
+{
+	unsigned char spi1_txbuf[10];
+
+	CS8975_LOW;		
+	// Read Data 
+	spi1_txbuf[0] = AK8975_WIA_REG | AKM8975_READ;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 10);
+	HAL_SPI_Receive(&hspi1, &spi1_rxbuf[0], 11, 10);
+	
+	// 
+	Magn_X = (spi1_rxbuf[3] + (spi1_rxbuf[4]<< 8));
+	Magn_Y = (spi1_rxbuf[5] + (spi1_rxbuf[6]<< 8));
+	Magn_Z = (spi1_rxbuf[7] + (spi1_rxbuf[8]<< 8));
+	
+	Magn_X = Magn_X*0.3;
+
+	CS8975_HIGH;
+		
+	CS8975_LOW;
+	// Read Sensitivity adjustment data
+	spi1_txbuf[0] = AK8975_ASAX_REG | AKM8975_READ;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 10);
+	HAL_SPI_Receive(&hspi1, &spi1_rxbuf[20], 3, 10);
+	CS8975_HIGH;
+	
+	CS8975_LOW;		
+	// Reset Device to Single measurement mode
+	spi1_txbuf[0] = AK8975_CNTL_REG & 0x7f;
+	spi1_txbuf[1] = 0x01;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+
+	CS8975_HIGH;
+
+}
+
+
+//int acount, myx[9], myy[9];
+//signed short int avgx,avgy;
+
+////return 0 for collect; 1 for report
+//int Mean_filter(signed short int *bData)
+//{
+//	signed short int i, x, y, z;
+//	
+//	x = bData[1] + (bData[2] << 8);
+//	y = bData[3] + (bData[4] << 8);
+//	z = bData[5] + (bData[6] << 8);//don't do this
+////    printf("x:%d, y:%d, z:%d\n",x,y,z);//no z
+//	myx[acount] = x;
+//	myy[acount] = y;
+//	acount++;
+//	if (acount == 9)
+//	{
+//		signed short maxx = -1000, minx = 1000, maxy = -1000, miny = 1000, avgx = 0, avgy = 0;
+//		acount = 0;
+//		//do sort and average
+//		for (i=0; i<9; i++)
+//		{
+//			if (maxx < myx[i])
+//				maxx = myx[i];
+//			else if (minx > myx[i])
+//				minx = myx[i];
+//			avgx += myx[i];
+//            
+//			if (maxy < myy[i])
+//				maxy = myy[i];
+//			else if (miny > myy[i])
+//				miny = myy[i];
+//			avgy += myy[i];
+////      printf("avgx:%d, myx[i]:%d, avgy:%d, myy[i]:%d\n", avgx, myx[i], avgy, myy[i]);
+//		}
+//		avgx = (avgx - maxx - minx) / 7;
+//		avgy = (avgy - maxy - miny) / 7;
+////		printf("bdata1:%x, bdata2:%x\n", bData[1], bData[2]);
+//		bData[1] = avgx & ((signed short int)255);
+//		bData[2] = avgx >> 8;
+//		bData[3] = avgy & ((signed short int)255);
+//		bData[4] = avgy >> 8;
+//// 		printf("maxx:%d, minx:%d, avgx:%d,avgy:%d; bdata1:%x, bdata2:%x,report!*********************\n",maxx, minx, avgx, avgy, bData[1], bData[2]);
+//		return 0;
+//	}
+//	return 1;
+//}
+
+
+#endif
+
+
+

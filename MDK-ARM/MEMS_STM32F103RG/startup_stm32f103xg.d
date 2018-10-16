@@ -1,0 +1,1 @@
+mems_stm32f103rg\startup_stm32f103xg.o: startup_stm32f103xg.s

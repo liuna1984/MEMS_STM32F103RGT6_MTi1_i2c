@@ -1,0 +1,377 @@
+/**
+  ******************************************************************************
+  * @file    bsp_mpu9255_spi.c
+  * @author  
+  * @version V1.0
+  * @date    27-January-2015
+  * @brief   This file includes the MPU9250 driver functions
+  
+  ******************************************************************************
+  */
+#include "bsp_mpu9255.h"
+
+IMU_Type IMU_Data;
+
+//int16_t magn[3];
+//int16_t accel[3], gyro[3];
+MPU9255_TypeDef MPU9255_Offset={0};
+MPU9255_TypeDef_Off MPU9255_Magn_Offset={0};
+
+void MPU9250_CalAvgValue(uint8_t *pIndex, int16_t *pAvgBuffer, int16_t InVal, int32_t *pOutVal);
+void MPU9255_InitGyrOffset(void);
+void MPU9255_WriteReg(unsigned char WriteAddr, unsigned char WriteData);
+unsigned char MPU9255_ReadReg(unsigned char WriteAddr);
+void MPU9255_AK8963_WriteReg(unsigned char WriteAddr, unsigned char WriteData);
+void MPU9255_SetupAK8963_WriteReg(void);
+
+#if ((MEMS_DEVICE == MPU9255) && (BUS_TYPE == BUS_SPI))
+/**
+  * @brief  Initializes MPU9255
+  * @param  None
+  * @retval None
+  */
+void mpu9255_initi_spi(void)
+{
+	uint8_t spi1_txbuf[20] = {0};
+	uint8_t ChipID = 0;
+	
+  CS9255_HIGH;
+	HAL_Delay(10);
+	
+	// Test MPU9255
+	CS9255_LOW;
+	// Reset Device
+  spi1_txbuf[0] = PWR_MGMT_1;
+	spi1_txbuf[1] = 0x80;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+	CS9255_HIGH;	
+	HAL_Delay(10);
+	
+	CS9255_LOW;
+	// Read Device ID
+  spi1_txbuf[0] = WHO_AM_I | MPU9255_READ;
+//	HAL_SPI_TransmitReceive(&hspi1, &spi1_txbuf[0], &ChipID, 1, 100);
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 100);
+	HAL_SPI_Receive(&hspi1, &ChipID, 1, 100);
+	CS9255_HIGH;
+	HAL_Delay(10);
+	
+	if(ChipID == WHO_AM_I_VAL)
+	{
+    
+	  CS9255_LOW;
+		// Clock Source
+		spi1_txbuf[0] = PWR_MGMT_1;
+		spi1_txbuf[0] = 0x01;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+    CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		// Set I2C_MST_EN 
+		spi1_txbuf[0] = USER_CTRL;
+		spi1_txbuf[1] = 0x20;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+		CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		// Enable Acc & Gyro
+		spi1_txbuf[0] = PWR_MGMT_2;
+		spi1_txbuf[1] = 0x00;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+		CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		//  
+		spi1_txbuf[0] = SMPLRT_DIV;
+		spi1_txbuf[1] = 0x07;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+		CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		// DLPF_CFG = 0x05, Gyroscope 10HZ 17.85ms,Temperature Sensor 10HZ 13.4ms; 
+		spi1_txbuf[0] = CONFIG;
+		spi1_txbuf[1] = 0x05;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+	  CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		//  Gyro Full Scale Select [4:3]: 00 = 250dps; 01= +500 dps; 10 = +1000 dps; 11 = +2000 dps;
+		spi1_txbuf[0] = GYRO_CONFIG;
+		spi1_txbuf[1] = 0x10; // 0x00;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+    CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		// Accel Full Scale Select[4:3]: ±2g (00), ±4g (01), ±8g (10), ±16g (11)
+		spi1_txbuf[0] = ACCEL_CONFIG;
+		spi1_txbuf[1] = 0x10; // 0x18;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+		CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		// Set Acc Data Rates
+		spi1_txbuf[0] = ACCEL_CONFIG_2;
+		spi1_txbuf[1] = 0x48;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+		CS9255_HIGH;
+		HAL_Delay(10);
+	
+	  CS9255_LOW;
+		// turn on Bypass Mode 
+		spi1_txbuf[0] = INT_PIN_CFG;
+		spi1_txbuf[1] = 0x02;
+	  HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+		CS9255_HIGH;
+		HAL_Delay(10);
+		
+	#ifdef USE_MAG_AK8963
+		// Magnetometer set ******************************************************/
+    MPU9255_SetupAK8963_WriteReg();
+	#endif
+		
+	}
+	
+}
+
+/**
+  * @brief  mpu9255 data read 
+  * @param  None
+  * @retval None
+  */
+void read_mpu9255_spi(void)
+{
+	uint8_t spi1_txbuf[20];
+	int16_t InBuffer = 0; 
+
+	CS9255_LOW;
+	
+  // Read Data for Accelerometer Temperature Gyroscope	
+	spi1_txbuf[0] = ACCEL_XOUT_H | MPU9255_READ;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 100);
+	
+#ifndef USE_MAG_AK8963
+	HAL_SPI_Receive(&hspi1, &IMU_Data.Buf.Data[0], 14, 100);
+#endif
+	
+#ifdef USE_MAG_AK8963
+	HAL_SPI_Receive(&hspi1, &IMU_Data.Buf.Data[0], 20, 100);
+#endif	
+	
+	// Accelerometer 
+	IMU_Data.Data.ACCEL_X = (IMU_Data.Data.ACCEL_X>>8&0xFF)|(IMU_Data.Data.ACCEL_X&0xFF)<<8;
+	IMU_Data.Data.ACCEL_Y = (IMU_Data.Data.ACCEL_Y>>8&0xFF)|(IMU_Data.Data.ACCEL_Y&0xFF)<<8;
+	IMU_Data.Data.ACCEL_Z = (IMU_Data.Data.ACCEL_Z>>8&0xFF)|(IMU_Data.Data.ACCEL_Z&0xFF)<<8;	
+	// Gyroscope	
+	IMU_Data.Data.GYRO_X = (IMU_Data.Data.GYRO_X>>8&0xFF)|(IMU_Data.Data.GYRO_X&0xFF)<<8;
+	IMU_Data.Data.GYRO_Y = (IMU_Data.Data.GYRO_Y>>8&0xFF)|(IMU_Data.Data.GYRO_Y&0xFF)<<8;
+	IMU_Data.Data.GYRO_Z = (IMU_Data.Data.GYRO_Z>>8&0xFF)|(IMU_Data.Data.GYRO_Z&0xFF)<<8;
+	// Magnetometer
+	IMU_Data.Data.MAG_X = (IMU_Data.Data.MAG_X>>8&0xFF)|(IMU_Data.Data.MAG_X&0xFF)<<8;
+	IMU_Data.Data.MAG_Y = (IMU_Data.Data.MAG_Y>>8&0xFF)|(IMU_Data.Data.MAG_Y&0xFF)<<8;
+	IMU_Data.Data.MAG_Z = (IMU_Data.Data.MAG_Z>>8&0xFF)|(IMU_Data.Data.MAG_Z&0xFF)<<8;
+	
+	// Temperature 
+	InBuffer = (IMU_Data.Buf.Data[6]<<8)|IMU_Data.Buf.Data[7];
+	IMU_Data.Data.TEMP = (int16_t)((((double)(InBuffer-0)/333.87)+21.0)* 100) ;
+	
+  CS9255_HIGH;
+
+//	uint8_t i;
+//	int16_t InBuffer1[3] = {0}; 
+//	InBuffer1[1] =(spi1_rxbuf[1]<<8)|spi1_rxbuf[0];
+//	InBuffer1[0] =	(spi1_rxbuf[3]<<8)|spi1_rxbuf[2];
+//	InBuffer1[2] =	(spi1_rxbuf[5]<<8)|spi1_rxbuf[4];	
+//	InBuffer1[2] = -InBuffer1[2];
+//	
+//	for(i = 0; i < 3; i ++)	
+//	{
+//		MPU9250_CalAvgValue(&MPU9255_Filter[i].Index, MPU9255_Filter[i].AvgBuffer, InBuffer1[i], OutBuffer + i);
+//	} 
+//	IMU_Data.Data.MAG_X = *(OutBuffer + 0)- MPU9255_Magn_Offset.X_Off_Err;
+//	IMU_Data.Data.MAG_Y = *(OutBuffer + 1)- MPU9255_Magn_Offset.Y_Off_Err;
+//	IMU_Data.Data.MAG_Z = *(OutBuffer + 2)- MPU9255_Magn_Offset.Z_Off_Err;
+
+}
+
+/**
+  * @brief  Digital filter
+  * @param *pIndex:
+  * @param *pAvgBuffer:
+  * @param InVal:
+  * @param pOutVal:
+  *
+  * @retval None
+  *               
+  */
+void MPU9250_CalAvgValue(uint8_t *pIndex, int16_t *pAvgBuffer, int16_t InVal, int32_t *pOutVal)
+{	
+	uint8_t i;
+	
+	*(pAvgBuffer + ((*pIndex) ++)) = InVal;
+	*pIndex &= 0x07;
+  	
+	*pOutVal = 0;
+	for(i = 0; i < 8; i ++) 
+	{
+		*pOutVal += *(pAvgBuffer + i);
+	}
+	*pOutVal >>= 3;
+	
+}
+
+/**
+  * @brief  Initializes gyroscopes offset
+  * @param  None
+  * @retval None
+  */
+void MPU9255_InitGyrOffset(void)
+{
+	uint8_t i;
+	int32_t	TempGx = 0, TempGy = 0, TempGz = 0;
+	
+ 	for(i = 0; i < 32; i ++)
+ 	{
+    read_mpu9255_spi();
+		
+		TempGx += IMU_Data.Data.GYRO_X;
+		TempGy += IMU_Data.Data.GYRO_Y;
+		TempGz += IMU_Data.Data.GYRO_Z;
+
+		HAL_Delay(1);
+	}
+
+	MPU9255_Offset.X = TempGx >> 5;
+	MPU9255_Offset.Y = TempGy >> 5;
+	MPU9255_Offset.Z = TempGz >> 5;
+
+}
+
+/**
+  * @brief  mpu9255 setup AK8963 
+  * @param  None
+  * @retval None
+  */
+void MPU9255_AK8963_WriteReg(unsigned char WriteAddr, unsigned char WriteData)
+{
+	unsigned char status = 0;
+	long timeout = MPU9255_AK8963_ReadDelay;
+	  
+  MPU9255_WriteReg(MPU9255_I2C_SLV4_ADDR, AK8963_I2C_ADDR);
+	HAL_Delay(1);
+		
+  MPU9255_WriteReg(MPU9255_I2C_SLV4_REG, WriteAddr);
+	HAL_Delay(1);
+	
+  MPU9255_WriteReg(MPU9255_I2C_SLV4_DO, WriteData);
+	HAL_Delay(1);
+		
+  MPU9255_WriteReg(MPU9255_I2C_SLV4_CTRL, MPU9255_I2C_SLVX_EN);
+	HAL_Delay(1);
+		
+	do
+	{
+		status = MPU9255_ReadReg(MPU9255_I2C_MST_STATUS);
+		HAL_Delay(10);
+	}while(((status & MPU9255_I2C_SLV4_DONE) == 0) && (timeout -- ));
+		
+}
+
+/**
+  * @brief  mpu9255 setup AK8963 
+  * @param  None
+  * @retval None
+  */
+void MPU9255_SetupAK8963_WriteReg(void)
+{
+	uint8_t magoff[3];
+	  
+	MPU9255_AK8963_WriteReg(MPU9255_AK8963_CNTL2, 0x01);     // 重启
+	HAL_Delay(100);
+	MPU9255_AK8963_WriteReg(MPU9255_AK8963_CNTL1, 0x10);     // 关闭
+	HAL_Delay(1);
+	MPU9255_AK8963_WriteReg(MPU9255_AK8963_CNTL1, 0x1F);     // 融合模式
+	HAL_Delay(1);
+	
+//	magoff[0] = MPU9255_AK8963_ReadReg(MPU9255_AK8963_ASAX);      // 读取偏移值
+//	HAL_Delay(1);
+//	magoff[1] = MPU9255_AK8963_ReadReg(MPU9255_AK8963_ASAY);      
+//	HAL_Delay(1);
+//	magoff[2] = MPU9255_AK8963_ReadReg(MPU9255_AK8963_ASAZ);      
+//	HAL_Delay(1);
+	
+	MPU9255_AK8963_WriteReg(MPU9255_AK8963_CNTL1,0x10);      // 关闭
+	HAL_Delay(1);
+	
+  MPU9255_WriteReg(MPU9255_I2C_MST_CTRL, 0x5D);                     // 设置主机模式（单主机/数据等待/I2C频率）
+	HAL_Delay(1);
+	
+  MPU9255_WriteReg(MPU9255_I2C_SLV0_ADDR, MPU9255_AK8963_ADDR|0x80);// 读及器件地址
+	HAL_Delay(1);
+	
+  MPU9255_WriteReg(MPU9255_I2C_SLV0_REG, MPU9255_AK8963_ST1);       // 器件寄存器地址
+	HAL_Delay(1);
+	
+  MPU9255_WriteReg(MPU9255_I2C_SLV0_CTRL, 0x80|8);                  // 使能传输和写入字节长度
+	HAL_Delay(1);
+	
+	MPU9255_AK8963_WriteReg(MPU9255_AK8963_CNTL1, 0x16);              // 打开 
+	HAL_Delay(1);
+	
+  MPU9255_WriteReg(MPU9255_I2C_SLV4_CTRL, 0x01);                    // 后5位设置从设备数据采集延时分频
+	HAL_Delay(1);
+
+  MPU9255_WriteReg(MPU9255_I2C_MST_DELAY_CTRL, 0x81);               // 开从设备0数据采集延时
+	HAL_Delay(100);
+	
+}
+	
+/**
+  * @brief  mpu9255 register write 
+  * @param  WriteAddr, register address
+  *         WriteData, write data
+  * @retval None
+  */
+void MPU9255_WriteReg(unsigned char WriteAddr, unsigned char WriteData)
+{
+	uint8_t spi1_txbuf[10];
+	
+	CS9255_LOW;
+	spi1_txbuf[0] = WriteAddr;
+	spi1_txbuf[1] = WriteData;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 2, 100);
+	CS9255_HIGH;
+	HAL_Delay(10);
+	
+}
+
+/**
+  * @brief  mpu9255 register write 
+  * @param  WriteAddr, register address
+  * @retval Data
+  */
+unsigned char MPU9255_ReadReg(unsigned char WriteAddr)
+{
+	unsigned char spi1_txbuf[10];
+	unsigned char Data;
+	
+	CS9255_LOW;
+	spi1_txbuf[0] = WriteAddr;
+	HAL_SPI_Transmit(&hspi1, &spi1_txbuf[0], 1, 100);
+	HAL_SPI_Receive(&hspi1, &Data, 1, 100);
+	CS9255_HIGH;
+	HAL_Delay(10);
+	return Data;
+}
+
+
+#endif
+
+
+
